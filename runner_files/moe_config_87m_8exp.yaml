@@ -23,7 +23,7 @@ accum-freq: 4
 lr: 5.e-4
 lr-scheduler: cosine
 lr-cooldown-end: 0.00001
-model: open_lm_41m
+model: open_lm_87m
 warmup: 200
 
 moe-freq: 2
@@ -32,5 +32,5 @@ moe-top-k: 2
 moe-capacity-factor: 1.25 
 moe-loss-weight: 0.1
 wandb-project-name: moe
-name: 41m_8exp
+name: 87m_8exp
 resume: latest
