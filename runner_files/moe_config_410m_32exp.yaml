@@ -18,7 +18,7 @@ fsdp: True
 fsdp-amp: True
 model-norm: gain_only_layer_norm
 
-global-batch-size: 128
+global-batch-size: 64
 accum-freq: 4
 lr: 5.e-4
 lr-scheduler: cosine

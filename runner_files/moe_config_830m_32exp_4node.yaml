@@ -27,10 +27,10 @@ model: open_lm_830m
 warmup: 200
 
 moe-freq: 2
-moe-num-experts: 8
+moe-num-experts: 32
 moe-top-k: 2
 moe-capacity-factor: 1.25 
 moe-loss-weight: 0.1
 wandb-project-name: moe
-name: 830m_8exp_4node
+name: 830m_32exp_4node
 resume: latest
