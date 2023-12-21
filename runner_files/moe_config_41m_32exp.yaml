@@ -1,0 +1,36 @@
+train-num-samples: 2000000000
+workers: 2
+train-data: ["pipe:aws s3 cp s3://tri-ml-datasets/openlm/data/rpj_tokenized_upsampled_eleutherai/shard_{00000000..00099998}.tar -", "pipe:aws s3 cp s3://tri-ml-datasets/openlm/data/2T_no_rpj_tokenized_upsampled_25k_shard/shard_{00000000..00024998}.tar -"]
+train-data-mix-weights: [0.725, 0.275]
+val-data: ["pipe:aws s3 cp s3://tri-ml-datasets/openlm/data/val-perplexity/shard_00000000.tar -"]
+val-data-key: ['json']
+precision: amp_bfloat16
+log-every-n-steps: 20
+grad-clip-norm: 1
+wd: 0.1
+beta2: 0.95
+epochs: 10
+report-to: wandb
+logs: /opt/ml/checkpoints/
+seed: 124
+data-key: 'json'
+fsdp: True
+fsdp-amp: True
+model-norm: gain_only_layer_norm
+
+global-batch-size: 64
+accum-freq: 4
+lr: 5.e-4
+lr-scheduler: cosine
+lr-cooldown-end: 0.00001
+model: open_lm_41m
+warmup: 200
+
+moe-freq: 2
+moe-num-experts: 32
+moe-top-k: 2
+moe-capacity-factor: 1.25 
+moe-loss-weight: 0.1
+wandb-project-name: moe
+name: 41m_32exp
+resume: latest
