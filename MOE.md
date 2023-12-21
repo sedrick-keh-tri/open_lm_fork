@@ -20,7 +20,7 @@ torchrun --nproc-per-node 8 -m open_lm.main \
     --dataset-manifest "s3://laion-west/rpj_tokenized_upsampled_eleutherai/manifest.jsonl" "s3://laion-west/2T_no_rpj_tokenized_upsampled_25k_shards/manifest.jsonl" \
     --train-data-mix-weights 0.725 0.275 \
     --precision amp_bfloat16 \
-    --global-batch-size 64 \
+    --batch-size 8 \
     --accum-freq 4 \
     --log-every-n-steps 20 \
     --grad-clip-norm 1 \
@@ -34,8 +34,8 @@ torchrun --nproc-per-node 8 -m open_lm.main \
     --moe-freq 2 \
     --moe-num-experts 8 \
     --moe-top-k 2 \
-    --moe-capacity-factor 1.25 \
-    --moe-loss-weight 0.1 \
+    --moe-capacity-factor 1.25 --moe-loss-weight 0.1 \
+    --disable-meta-device \
     --wandb-project-name moe \
     --name test$RANDOM \
     --logs /fsx/home-$USER/experiments/moe \
@@ -60,7 +60,7 @@ torchrun --nproc-per-node 8 -m open_lm.main \
                 --val-data "pipe:aws s3 cp s3://laion-west/lmdata/validation_data_tokenized/open_lm//shard_00000000.tar -" \
                 --workers 6 \
                 --precision amp_bfloat16 \
-                --global-batch-size 64 \
+                --batch-size 8 \
                 --log-every-n-steps 1 \
                 --model open_lm_41m \
                 --fsdp --fsdp-amp \
@@ -90,7 +90,15 @@ To benchmark your results, here are perplexities we obtain with our implementati
 |--------------|------|------|------|------|------|
 | 1 | 27.61 | 18.68 | 14.87 | 10.54 | 9.39  |  
 | 8 | 19.85 | 14.66 | 12.26 | 9.82 | 8.84 |
-| 32 | 20.55 | 15.28 |14.62 | | |
+| 8 (H100) | 20.29 | 15.44 | 13.15 | 12.35 | 15.04 |
+| 32 | 20.55 | 15.28 | 14.62 | | |
+| 32 (H100) | 18.23 | 14.46 | 13.38 | | |
+
+Note: The 410M and 830M experiments use 2 nodes and 4 nodes respectively, which results in higher global batch sizes and less steps. 
+This could possibly mess with the LR scheduling.
+Will try to see what these settings are like if we use only 1 node.
+
+![image](https://github.com/sedrick-keh-tri/open_lm_fork/assets/133716510/65ae743e-6b3a-426c-8f67-058bb6524e21)
 
 
 ### Tokens/sec/GPU 
@@ -99,6 +107,8 @@ To benchmark your results, here are perplexities we obtain with our implementati
 |--------------|------|------|------|------|------|
 | 1 | 141.2K | 106.0K | 95.5K | 30.3K | 16.0K |  
 | 8 | 69.5K | 66.6K | 66.2K | 18.5K | 9.2K |
+| 8 (H100) | 67K | 68K | 67K | 34K | 22K |
+| 32 (H100) | 65K | 66K | 63K | 25K | 6K |
 
 ### Training Parameters
 
