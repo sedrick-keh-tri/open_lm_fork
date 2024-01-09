@@ -18,7 +18,7 @@ fsdp: True
 fsdp-amp: True
 model-norm: gain_only_layer_norm
 
-global-batch-size: 256
+global-batch-size: 64
 accum-freq: 4
 lr: 5.e-4
 lr-scheduler: cosine
@@ -32,5 +32,5 @@ moe-top-k: 2
 moe-capacity-factor: 1.25 
 moe-loss-weight: 0.1
 wandb-project-name: moe
-name: 830m_8exp_4node
+name: 830m_8exp
 resume: latest
