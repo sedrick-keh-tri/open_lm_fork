@@ -1,3 +1,4 @@
+import glob
 import argparse
 import collections
 import enum
@@ -12,6 +13,7 @@ import resource
 import tarfile
 import time
 import traceback
+import glob
 from enum import Enum
 from io import BytesIO
 from typing import BinaryIO, List
@@ -41,8 +43,9 @@ from ray.runtime_context import RuntimeContext
 from tqdm import tqdm
 from transformers import GPTNeoXTokenizerFast
 
+import logging
 
-import enum
+
 import yaml
 import pathlib
 
@@ -165,6 +168,27 @@ def get_raw_filetype(key: str):
         return RawFileType.UNKNOWN
 
 
+@ray.remote
+class GlobalCounter:
+    def __init__(self):
+        self.value = 0
+        self.token_count = 0
+
+    def increment(self):
+        self.value += 1
+        return self.value
+
+    def increment_token_count(self, num_tokens):
+        self.token_count += num_tokens
+        return self.token_count
+
+    def get_counter(self):
+        return self.value
+
+    def get_token_counter(self):
+        return self.token_count
+
+
 def preprocess(
     key: str,
     fh: BinaryIO,
@@ -174,6 +198,7 @@ def preprocess(
     tokenizer=None,
     do_sample: bool = False,
     sources: enum.Enum = None,
+    source_counter: GlobalCounter = None,
 ):
     tokenizer_fn, vocab_size = tokenizer
     rng = random.Random(hash(key) + seed)
@@ -202,15 +227,23 @@ def preprocess(
                     # then yield 1 more sample with Pr[sample_freq - int(sample_freq)]
                     # in expectation we will yield sample_freq copies of buffer[:seqlen]
                     while local_sample_freq > 1:
+                        if source_counter is not None:
+                            ray.get(source_counter.increment_token_count.remote(seqlen))
                         yield buffer[:seqlen]
                         local_sample_freq -= 1
                     if rng.random() < local_sample_freq:
+                        if source_counter is not None:
+                            ray.get(source_counter.increment_token_count.remote(seqlen))
                         yield buffer[:seqlen]
                     buffer = buffer[seqlen:]
                 else:
+                    if source_counter is not None:
+                        ray.get(source_counter.increment_token_count.remote(seqlen))
                     yield buffer[:seqlen]
                     buffer = buffer[seqlen:]
         if len(buffer) > 0:
+            if source_counter is not None:
+                ray.get(source_counter.increment_token_count.remote(len(buffer)))
             yield buffer + [PAD] * (seqlen - len(buffer))
 
     except (IncompleteReadError, ReadTimeoutError, ResponseStreamingError) as e:
@@ -218,24 +251,43 @@ def preprocess(
         return []
 
 
-def process_keys(data, tokenizer, seqlen, seed, content_key, do_sample, sources=None):
-    s3_client = boto3.client("s3")
+def process_keys(data, tokenizer, seqlen, seed, content_key, do_sample, sources=None, source_counters=None):
     path = data["path"]
-    bucket, key = parse_s3_path(path)
-    response = s3_client.get_object(Bucket=bucket, Key=key)
-    fh = response["Body"]
-    token_buffers = preprocess(
-        key,
-        fh,
-        seqlen=seqlen,
-        seed=seed,
-        tokenizer=tokenizer,
-        content_key=content_key,
-        do_sample=do_sample,
-        sources=sources,
-    )
-    for token_buffer in token_buffers:
-        yield {"tokens": token_buffer}
+
+    if path.startswith("s3"):
+        s3_client = boto3.client("s3")
+        bucket, key = parse_s3_path(path)
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        fh = response["Body"]
+    else:
+        key = path
+        fh = open(path, "rb")
+
+    try:
+        # select a counter
+        if sources is not None and source_counters is not None:
+            source_counter = source_counters[sources.get_source(key)]
+        else:
+            source_counter = None
+        # Process the file stream (either S3 or local)
+        token_buffers = preprocess(
+            key,
+            fh,
+            seqlen=seqlen,
+            seed=seed,
+            tokenizer=tokenizer,
+            content_key=content_key,
+            do_sample=do_sample,
+            sources=sources,
+            source_counter=source_counter,
+        )
+
+        # Ensure that all operations on the file handle are done within this block
+        for token_buffer in token_buffers:
+            yield {"tokens": token_buffer}
+    finally:
+        # Close the file handle/stream after all operations are done
+        fh.close()
 
 
 class SpecialTokens(Enum):
@@ -293,7 +345,10 @@ def map_write_wds(batch, batch_size, folder, counter):
     bio.seek(0)
     token_count = ray.get(counter.increment_token_count.remote(token_count))
     write_to_location(folder, tar_name, bio)
-    return batch
+
+    return_dict = {"shard": [tar_name.split(".")[0]], "num_sequences": [len(batch["tokens"])]}
+
+    return return_dict
 
 
 def write_to_location(folder, tar_name, bio):
@@ -361,31 +416,35 @@ def glob_files(path, suffix=".jsonl"):
 
     else:
         # Use glob for local paths
-        search_pattern = f"{path.rstrip('/')}/*{suffix}"
-        matching_files = glob.glob(search_pattern)
+        search_pattern = f"{path.rstrip('/')}/**/*{suffix}"
+        matching_files = glob.glob(search_pattern, recursive=True)
+        print("matching files with suffix: ", suffix)
+        print(matching_files)
 
     return matching_files
 
 
-@ray.remote
-class GlobalCounter:
-    def __init__(self):
-        self.value = 0
-        self.token_count = 0
+def write_manifest(jsonl_lines, args):
+    "Write manifest to provided output path."
 
-    def increment(self):
-        self.value += 1
-        return self.value
+    output_path = os.path.join(args.output.strip("/"), "manifest.jsonl")
 
-    def increment_token_count(self, num_tokens):
-        self.token_count += num_tokens
-        return self.token_count
-
-    def get_counter(self):
-        return self.value
-
-    def get_token_counter(self):
-        return self.token_count
+    if output_path.startswith("s3://"):
+        # Use boto3 for S3 paths
+        s3_client = boto3.client("s3")
+        jsonl_content = "\n".join(json.dumps(record) for record in jsonl_lines) + "\n"  # Add a newline at the end
+        bucket_name, s3_key = output_path[5:].split("/", 1)
+        response = s3_client.put_object(Bucket=bucket_name, Key=s3_key, Body=jsonl_content)
+        if response["ResponseMetadata"]["HTTPStatusCode"] != 200:
+            logging.warning(
+                "Failed to write manifest. Please manually include manifest by running "
+                "open_lm.utils.make_manifest on the tokenized data."
+            )
+    else:
+        with open(output_path, "w") as f:
+            for item in jsonl_lines:
+                json.dump(item, f)
+                f.write("\n")
 
 
 def main(args):
@@ -405,40 +464,69 @@ def main(args):
     parser.add_argument("--wds_chunk_size", type=int, default=8192)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--subset", type=int, default=None)
+    parser.add_argument("--subfraction", type=float, default=None)
     parser.add_argument("--ray_address", type=str, default=None)
     parser.add_argument("--block_size", type=str, default="10MB")
     parser.add_argument("--force_parallelism", type=int, default=None)
+    parser.add_argument("--force_num_cores", type=int, default=None)
     parser.add_argument("--no_shuffle", action="store_true")
     parser.add_argument("--do_sample", action="store_true")
     parser.add_argument("--ray_spill_location", type=str, default="/tmp/ray_spill")
     parser.add_argument("--default_dataset_yaml", type=str, default=(DIR.parent / "metadata" / "rpj_lm_data.yaml"))
+    parser.add_argument(
+        "--ray_dashboard_host", type=str, default="127.0.0.1"
+    )  # default is localhost; for slurm jobs do 0.0.0.0
 
     args = parser.parse_args(args)
-    Sources, SAMPLING_FREQUENCIES = load_from_yaml(args.default_dataset_yaml)
-    logger.info(f"SOURCES:\n {Sources}")
-    logger.info(f"SAMPLING_FREQUENCIES:\n{SAMPLING_FREQUENCIES}")
+    if args.do_sample:
+        Sources, SAMPLING_FREQUENCIES = load_from_yaml(args.default_dataset_yaml)
+        logger.info(f"SOURCES:\n {Sources}")
+        logger.info(f"SAMPLING_FREQUENCIES:\n{SAMPLING_FREQUENCIES}")
+    else:
+        Sources, SAMPLING_FREQUENCIES = None, None
     # configure remote spilling
     creds = {k: v for k, v in os.environ.items() if k.startswith("AWS")}
     runtime_env = {"env_vars": creds}
 
-    if args.ray_address is None:
-        ray.init(runtime_env=runtime_env, _temp_dir=args.ray_spill_location)
+    if args.force_num_cores is not None:
+        num_cores = args.force_num_cores
     else:
-        ray.init(args.ray_address, runtime_env=runtime_env, _temp_dir=args.ray_spill_location)
+        num_cores = os.cpu_count()
+
+    print(f"num cores = {num_cores}")
+    if args.ray_address is None:
+        ray.init(
+            runtime_env=runtime_env,
+            _temp_dir=args.ray_spill_location,
+            dashboard_host=args.ray_dashboard_host,
+        )
+    else:
+        ray.init(
+            args.ray_address,
+            runtime_env=runtime_env,
+            _temp_dir=args.ray_spill_location,
+            dashboard_host=args.ray_dashboard_host,
+        )
     num_nodes = len(ray.nodes())
     input_folders = args.input.split(",")
     input_paths = []
     for inp_folder in input_folders:
+        input_paths += glob_files(inp_folder, suffix=".json")
         input_paths += glob_files(inp_folder, suffix=".jsonl")
         input_paths += glob_files(inp_folder, suffix=".zst")
+        input_paths += glob_files(inp_folder, suffix=".jsonl.gz")
         input_paths += glob_files(inp_folder, suffix=".tar")
+        input_paths += glob_files(inp_folder, suffix=".gz")
+    rng = random.Random(args.seed)
+    rng.shuffle(input_paths)  # shuffle before selecting subsets
     if args.subset is not None:
         input_paths = input_paths[: args.subset]
-    rng = random.Random(args.seed)
-    rng.shuffle(input_paths)
+    if args.subfraction is not None:
+        input_paths = input_paths[: int(args.subfraction * len(input_paths))]
+    print("Files considered: \n", input_paths)
     print(f"num files ={len(input_paths)}")
     num_files = len(input_paths)
-    num_cores = os.cpu_count()
+
     output_path = args.output
     seqlen = args.seqlen + 1
     wds_chunk_size = args.wds_chunk_size
@@ -456,6 +544,13 @@ def main(args):
     logger.info(f"Total number of keys = {len(input_paths)}")
     df = pd.DataFrame(input_paths, columns=["path"])
     ds = ray.data.from_pandas(pd.DataFrame(input_paths, columns=["path"])).repartition(parallelism)
+
+    # dictionary with counters to keep track of the tokens for each source
+    if Sources is not None:
+        source_counters = {source: GlobalCounter.remote() for source in Sources}
+    else:
+        source_counters = None
+
     ds = ds.flat_map(
         lambda x: process_keys(
             x,
@@ -465,6 +560,7 @@ def main(args):
             content_key=content_key,
             do_sample=args.do_sample,
             sources=Sources,
+            source_counters=source_counters,
         )
     )
     ds = ds.map(add_hash)
@@ -480,16 +576,29 @@ def main(args):
         batch_size=wds_chunk_size,
         fn_kwargs={
             "batch_size": wds_chunk_size,
-            "folder": args.output.strip("/"),
+            "folder": args.output.rstrip("/"),
             "counter": counter,
         },
         batch_format="pandas",
-    ).count()
+    )
+
+    # Sort by shard name
+    ds = ds.repartition(1)
+    ds = ds.sort(key="shard")
+    jsonl_lines = ds.take_all()
+    write_manifest(jsonl_lines, args)
+
     end_time = time.time()
     duration = end_time - start_time
     final_token_count = ray.get(counter.increment_token_count.remote(0))
+    print("==== Token count summary ====")
     print(f"Tokenize + Shuffle script Finished in: {duration}")
     print(f"Final Token Count: {final_token_count}")
+    if Sources is not None:
+        for source, counter in source_counters.items():
+            token_count = ray.get(counter.increment_token_count.remote(0))
+            print(f"Source: {source}, Token count: {token_count}")
+
     print("==== Driver memory summary ====")
     maxrss = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1e3)
     print(f"max: {maxrss / 1e9}/GB")
