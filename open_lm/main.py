@@ -464,6 +464,7 @@ def main(args):
     if args.val_num_samples is not None:
         args.val_num_samples //= args.seq_len
 
+    print("SEED: ", args.seed)
     random_seed(args.seed, args.rank)
 
     if args.distributed:
