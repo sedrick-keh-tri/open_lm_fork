@@ -830,9 +830,6 @@ def main(args):
                 logging.info("Model has seen the desired number of tokens. Ending training.")
             break
 
-    if args.wandb and is_master(args):
-        wandb.finish()
-
     # run a final sync.
     if remote_sync_process is not None:
         logging.info("Final remote sync.")
@@ -847,6 +844,9 @@ def main(args):
         else:
             logging.info("Final remote sync failed.")
     cleanup(remote_sync_process, args.distributed)
+    
+    if args.wandb and is_master(args):
+        wandb.finish()
 
     return args
 
