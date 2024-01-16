@@ -14,7 +14,7 @@ import xformers.ops as xops
 
 from huggingface_hub import PyTorchModelHubMixin
 
-from open_lm.attention import get_attn_func, xformers_attn, torch_attn
+from open_lm.attentions import get_attn_func, xformers_attn, torch_attn
 from open_lm.norms import get_norm_class
 from open_lm.positional_embedding.head_rotary import HeadRotaryWithCast
 from open_lm.positional_embedding.rotary import RotaryWithCast

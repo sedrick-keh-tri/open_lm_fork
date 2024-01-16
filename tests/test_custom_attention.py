@@ -1,6 +1,6 @@
 import torch
 
-from open_lm.attention import torch_attn, custom_attn, xformers_attn, ATTN_ACTIVATIONS, ATTN_SEQ_SCALARS
+from open_lm.attentions import torch_attn, custom_attn, xformers_attn, ATTN_ACTIVATIONS, ATTN_SEQ_SCALARS
 from open_lm.precision import get_autocast
 
 

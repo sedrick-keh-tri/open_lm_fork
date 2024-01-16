@@ -5,7 +5,7 @@ import json
 import logging
 import yaml
 
-from open_lm.attention import ATTN_ACTIVATIONS, ATTN_SEQ_SCALARS
+from open_lm.attentions import ATTN_ACTIVATIONS, ATTN_SEQ_SCALARS
 
 
 class ParseKwargs(argparse.Action):
