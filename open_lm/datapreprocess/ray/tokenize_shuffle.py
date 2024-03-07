@@ -437,7 +437,7 @@ def write_to_location(folder, tar_name, bio):
             assert False, f"error is {path} and {e}"
 
 
-def load_tokenizer(tokenizer):
+def load_tokenizer(tokenizer, tokenization_prefix):
     enc = None
     if pathlib.Path(tokenizer).exists():
         enc = PreTrainedTokenizerFast(tokenizer_file=tokenizer)
@@ -448,7 +448,7 @@ def load_tokenizer(tokenizer):
             print(str(e))
             raise ValueError(f"Unknown Tokenizer: {tokenizer}")
 
-    return (lambda x: enc(x).input_ids, enc.vocab_size)
+    return (lambda x: enc(tokenization_prefix + " " + x).input_ids, enc.vocab_size)
 
 
 def glob_files(path, suffixes):
@@ -552,6 +552,7 @@ def main(args):
     parser.add_argument("--content_key", type=str, default="text")
     parser.add_argument("--seqlen", type=int, default=2048)
     parser.add_argument("--tokenizer", type=str, default="EleutherAI/gpt-neox-20b")
+    parser.add_argument("--tokenization_prefix", type=str, default="")
     parser.add_argument("--vocab_size", type=int, default=None)  # for pre-tokenized data, don't load tokenizer
     parser.add_argument("--wds_chunk_size", type=int, default=8192)
     parser.add_argument("--seed", type=int, default=42)
@@ -631,7 +632,7 @@ def main(args):
     ctx.execution_options.resource_limits.object_store_memory = float("inf")
     ray.data.DataContext.get_current().execution_options.verbose_progress = True
     start_time = time.time()
-    tokenizer = load_tokenizer(args.tokenizer) if args.vocab_size is None else (lambda x: x, args.vocab_size)
+    tokenizer = load_tokenizer(args.tokenizer, args.tokenization_prefix) if args.vocab_size is None else (lambda x: x, args.vocab_size)
     logger.info(f"Total number of keys = {len(input_paths)}")
     df = pd.DataFrame(input_paths, columns=["path"])
     ds = ray.data.from_pandas(pd.DataFrame(input_paths, columns=["path"])).repartition(parallelism)
