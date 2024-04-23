@@ -106,7 +106,7 @@ def add_model_args(parser):
         "--attn-name",
         type=str,
         default="auto",
-        choices=["auto", "xformers_attn", "xformers_attn_variable_length", "torch_attn", "custom_attn"],
+        choices=["auto", "xformers_attn", "xformers_attn_variable_length", "torch_attn", "custom_attn", "linear_attn"],
         help="type of attention to use",
     )
     parser.add_argument(
@@ -128,6 +128,54 @@ def add_model_args(parser):
         type=float,
         default=None,
         help="power alpha to raise L to, where L^alpha divides attention logits post activation",
+    )
+    parser.add_argument(
+        "--use-decay",
+        action="store_true",
+        default=False,
+        help="Use decay in the model.",
+    )
+    parser.add_argument(
+        "--use-retnet-slopes",
+        action="store_true",
+        default=False,
+        help="Use retnet slopes in the model.",
+    )
+    parser.add_argument(
+        "--n-heads-kv",
+        type=int,
+        default=None,
+        help="Number of heads for key and value.",
+    )
+    parser.add_argument(
+        "--qk-head-dim",
+        type=int,
+        default=None,
+        help="Size of qk head dimension. This might be overridden by the model config.",
+    )
+    parser.add_argument(
+        "--v-head-dim",
+        type=int,
+        default=None,
+        help="Size of v head dimension. This might be overridden by the model config.",
+    )
+    parser.add_argument(
+        "--decay-start",
+        type=int,
+        default=None,
+        help="Start value for the decay function. This might be overridden by the model config.",
+    )
+    parser.add_argument(
+        "--rotary-base-frequency",
+        type=int,
+        default=10000,
+        help="Base frequency for rotary positional embeddings.",
+    )
+    parser.add_argument(
+        "--rotary-scale",
+        type=float,
+        default=1.0,
+        help="Scale for rotary positional embeddings (sequence length at test time/sequence length at train time).",
     )
 
 
@@ -474,6 +522,12 @@ def parse_args(args):
         default=None,
         type=str,
         help="path to latest checkpoint (default: none)",
+    )
+    parser.add_argument(
+        "--load-not-strict",
+        default=False,
+        action="store_true",
+        help="Whether to load the model strictly (i.e. all keys must match).",
     )
     parser.add_argument(
         "--precision",

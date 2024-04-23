@@ -12,7 +12,7 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-def apply_rotary_pos_emb(x, cos, sin, offset: int = 0):
+def apply_rotary_pos_emb(x, cos, sin, offset=0):
     # NOTE: This could probably be moved to Triton
     assert (
         cos.shape[1] >= offset + x.shape[1]
@@ -44,7 +44,7 @@ class RotaryEmbedding(torch.nn.Module):
         (it does not create the embedding dimension) and will likely be picked up (imported) on a ad-hoc basis
     """
 
-    def __init__(self, dim_model: int, seq_len: int, *_, **__):
+    def __init__(self, dim_model: int, seq_len: int, frequency: int = 10000, scale: float = 1.0, *_, **__):
         super().__init__()
         # Generate and save the inverse frequency buffer (non trainable)
         self.dim_model = dim_model
@@ -54,10 +54,12 @@ class RotaryEmbedding(torch.nn.Module):
         self._sin_cached = None
         self._seq_len_cached = 0
         self.seq_len = seq_len
+        self.frequency = frequency
+        self.scale = scale
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.inv_freq = 1.0 / (10000 ** (torch.arange(0, self.dim_model, 2).float() / self.dim_model))
+        self.inv_freq = 1.0 / (self.scale * self.frequency ** (torch.arange(0, self.dim_model, 2).float() / self.dim_model))
         self._update_cos_sin_tables(self.seq_len)
 
     def _update_cos_sin_tables(self, seq_len: int = None, device: torch.device = None, dtype: torch.dtype = None):
@@ -77,8 +79,12 @@ class RotaryEmbedding(torch.nn.Module):
             self._cos_cached = emb.cos()[None, :, None, :].to(dtype)
             self._sin_cached = emb.sin()[None, :, None, :].to(dtype)
 
-    def forward(self, q: torch.Tensor, k: torch.Tensor, offset: int = 0) -> Tuple[torch.Tensor, torch.Tensor]:
-        self._update_cos_sin_tables(k.shape[1] + offset, device=k.device, dtype=k.dtype)
+    def forward(self, q: torch.Tensor, k: torch.Tensor, offset=0) -> Tuple[torch.Tensor, torch.Tensor]:
+        if isinstance(offset, torch.Tensor):
+            offset_max = offset.max().item()
+        else:
+            offset_max = offset
+        self._update_cos_sin_tables(k.shape[1] + offset_max, device=k.device, dtype=k.dtype)
         return (
             apply_rotary_pos_emb(q, self._cos_cached, self._sin_cached, offset),
             apply_rotary_pos_emb(k, self._cos_cached, self._sin_cached, offset),
@@ -86,6 +92,6 @@ class RotaryEmbedding(torch.nn.Module):
 
 
 class RotaryWithCast(RotaryEmbedding):
-    def forward(self, q, k, v, offset: int = 0):
+    def forward(self, q, k, v, offset=0):
         q, k = super().forward(q, k, offset)
         return q.to(v.dtype), k.to(v.dtype), v

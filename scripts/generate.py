@@ -12,6 +12,7 @@ from open_lm.utils.transformers.hf_config import OpenLMConfig
 from open_lm.utils.llm_foundry_wrapper import SimpleComposerOpenLMCausalLM
 from open_lm.model import create_params
 from open_lm.params import add_model_args
+from open_lm.file_utils import pt_load
 from transformers import GPTNeoXTokenizerFast, LlamaTokenizerFast
 
 
@@ -75,7 +76,7 @@ def main():
         raise ValueError(f"Unknown tokenizer {args.tokenizer}")
     if args.checkpoint is not None:
         print("Loading checkpoint from disk...")
-        checkpoint = torch.load(args.checkpoint)
+        checkpoint = pt_load(args.checkpoint)
         state_dict = checkpoint["state_dict"]
         state_dict = {x.replace("module.", ""): y for x, y in state_dict.items()}
         open_lm.model.load_state_dict(state_dict)

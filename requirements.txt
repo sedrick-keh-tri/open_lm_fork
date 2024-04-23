@@ -25,3 +25,4 @@ s3fs
 wikipedia
 ipython
 mosaicml
+git+https://github.com/OpenNLPLab/lightning-attention.git

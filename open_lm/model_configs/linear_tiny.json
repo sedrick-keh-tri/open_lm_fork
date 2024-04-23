@@ -1,0 +1,13 @@
+{
+    "hidden_dim": 256,
+    "n_layers": 6,
+    "n_heads": 8,
+    "seq_len": 2048,
+    "vocab_size": 50432,
+    "post_embed_norm": false,
+    "weight_tying": false,
+    "qk_norm": true,
+    "model_norm": "gain_only_lp_layer_norm",
+    "positional_embedding_type": "rotary",
+    "attn_name": "linear_attn"
+}

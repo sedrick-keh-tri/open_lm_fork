@@ -1,0 +1,18 @@
+{
+    "hidden_dim": 4096,
+    "intermediate_dim_mlp": 14336,
+    "n_layers": 32,
+    "n_heads": 32,
+    "n_heads_kv": 8,
+    "seq_len": 2048,
+    "vocab_size": 32000,
+    "post_embed_norm": false,
+    "weight_tying": false,
+    "qk_norm": false,
+    "qk_head_dim": 128,
+    "v_head_dim": 128,
+    "model_norm": "rms_norm",
+    "positional_embedding_type": "rotary",
+    "ffn_type": "swiglu",
+    "attn_name": "linear_attn"
+}
