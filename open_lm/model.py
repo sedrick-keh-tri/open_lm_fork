@@ -87,6 +87,7 @@ class Params:
     dim: int = 512
     qk_head_dim: int = None
     v_head_dim: int = None
+    intermediate_dim_ffn: int = None
     n_layers: int = 8
     n_heads: int = 8
     n_heads_kv: int = 8
@@ -135,25 +136,28 @@ class CustomAttn(nn.Module):
     def __init__(self, layer_id, args: Params):
         super().__init__()
         self.n_heads = args.n_heads
-        self.head_dim = args.dim // args.n_heads
-        self.in_proj = nn.Linear(args.dim, 3 * args.n_heads * self.head_dim, bias=False)
-        self.out_proj = nn.Linear(args.n_heads * self.head_dim, args.dim, bias=False)
+        self.qk_head_dim = args.qk_head_dim
+        self.v_head_dim = args.v_head_dim
+        self.n_heads_kv = args.n_heads_kv
+        self.in_proj = nn.Linear(args.dim, (args.n_heads * self.qk_head_dim + self.n_heads_kv * self.qk_head_dim + self.n_heads_kv * self.v_head_dim), bias=False)
+        self.out_proj = nn.Linear(args.n_heads * self.v_head_dim, args.dim, bias=False)
         self.pos_embed = get_pos_embed(args)
         self.attn_fn = args.attn_func
         self.apply_qk_norm = args.apply_qk_norm
 
         # initialize norm layers for queries and keys if needed
+        NormClass = args.norm_type
         self.q_norm = (
-            args.norm_type(
-                args.n_heads * self.head_dim,
+            NormClass(
+                args.n_heads * self.qk_head_dim,
                 eps=args.norm_eps,
             )
             if self.apply_qk_norm
             else nn.Identity()
         )
         self.k_norm = (
-            args.norm_type(
-                args.n_heads * self.head_dim,
+            NormClass(
+                args.n_heads * self.qk_head_dim,
                 eps=args.norm_eps,
             )
             if self.apply_qk_norm
@@ -172,19 +176,30 @@ class CustomAttn(nn.Module):
         std = std / math.sqrt(2 * (self.layer_id + 1))
         torch.nn.init.trunc_normal_(self.out_proj.weight, std=std, a=-3 * std, b=3 * std)
 
+    def repeat_kv(self, hidden_states, n_rep):
+        if n_rep==1:
+            return hidden_states
+        hidden_states2 = hidden_states.transpose(1, 2)
+        batch, num_key_value_heads, slen, head_dim = hidden_states2.shape
+        hidden_states2 = hidden_states2[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
+        return hidden_states2.reshape(batch, num_key_value_heads * n_rep, slen, head_dim).transpose(1, 2)
+
     def forward(self, x: torch.Tensor, is_causal=True, past_key_value=None, use_cache=False, attention_mask=None):
         batchsize, q_len, _ = x.shape
-        queries, keys, vals = self.in_proj(x).chunk(3, dim=-1)
+        queries, keys, vals = self.in_proj(x).split([self.n_heads * self.qk_head_dim, self.n_heads_kv * self.qk_head_dim, self.n_heads_kv * self.v_head_dim], dim=-1)
 
         queries = self.q_norm(queries)
         keys = self.k_norm(keys)
 
-        queries = queries.view(batchsize, q_len, self.n_heads, self.head_dim)
-        keys = keys.view(batchsize, q_len, self.n_heads, self.head_dim)
-        vals = vals.view(batchsize, q_len, self.n_heads, self.head_dim)
+        queries = queries.view(batchsize, q_len, self.n_heads, self.qk_head_dim)
+        keys = keys.view(batchsize, q_len, self.n_heads_kv, self.qk_head_dim)
+        vals = vals.view(batchsize, q_len, self.n_heads_kv, self.v_head_dim)
 
         past_length = 0 if past_key_value is None else past_key_value[0].shape[1]
         queries, keys, vals = self.pos_embed(queries, keys, vals, offset=past_length)
+
+        keys = self.repeat_kv(keys, n_rep=self.n_heads // self.n_heads_kv)
+        vals = self.repeat_kv(vals, n_rep=self.n_heads // self.n_heads_kv)
 
         if past_key_value is not None and use_cache:
             keys = torch.cat([past_key_value[0], keys], dim=1)
@@ -204,7 +219,7 @@ class CustomAttn(nn.Module):
         output = output.view(batchsize, q_len, -1)
 
         return self.out_proj(output), past_key_value
-    
+
 
 ############### Linear attention addition ################
 
@@ -258,7 +273,7 @@ def recurrent_forward(queries, keys, vals, s, use_decay=False, use_retnet_slopes
         gamma = torch.exp(- slope).reshape(1, queries.shape[1], 1, 1)
     else:
         gamma = 1.0
-    s_n = s + (keys.transpose(-1, -2)*qk_scale) @ vals
+    s_n = s + (keys.transpose(-1, -2) * qk_scale) @ vals
     output = queries @ s_n
     return output, gamma * s_n
 
@@ -284,8 +299,9 @@ def lightning_attn_func(q, k, v, qk_scale: float, start: float = None, use_decay
     else:
         s = no_slope_tensor(h, q.device, q.dtype)
     output = lightning_attn_ops(q, k * qk_scale, v, s)
-    
+
     return output
+
 
 class LinearAttn(nn.Module):
     def __init__(self, layer_id, args: Params):
@@ -381,7 +397,7 @@ class LinearAttn(nn.Module):
         vals = self.repeat_kv(vals, n_rep=self.n_heads // self.n_heads_kv)
 
         queries = self._totrain_q_norm(queries.view(batchsize, seqlen, self.n_heads * self.qk_head_dim)).view(batchsize, seqlen, self.n_heads, self.qk_head_dim)
-        keys = self._totrain_k_norm(keys.view(batchsize, seqlen, self.n_heads * self.qk_head_dim)).view(batchsize, seqlen, self.n_heads, self.qk_head_dim)
+        keys = self._totrain_k_norm(keys.reshape(batchsize, seqlen, self.n_heads * self.qk_head_dim)).view(batchsize, seqlen, self.n_heads, self.qk_head_dim)
 
         queries, keys, vals = self.pos_embed(
             queries,
@@ -448,7 +464,7 @@ class LinearAttn(nn.Module):
         attention_mask: None, not supported for linear attention in parallel mode
         """
         assert attention_mask is None, "Attention mask not supported for linear attention"
-        queries, keys, vals = self._get_qkv(x)      
+        queries, keys, vals = self._get_qkv(x)
         output = self.linear_attn_fn(queries, keys, vals, self.qk_scale)
         return self._output(output)
 
@@ -547,13 +563,11 @@ class Block(nn.Module):
             self.attention = CustomAttn(layer_id, args)
 
         self._ffn_type = args.ffn_type
+        # this follows llama / lit llama -- go to multiple of 256
+        self.hidden_dim = 256 * ((int(2 * 4 * args.dim / 3) + 256 - 1) // 256) if args.intermediate_dim_ffn is None else args.intermediate_dim_ffn
         if args.ffn_type == "swiglu":
-            # this follows llama / lit llama -- go to multiple of 256
-            self.hidden_dim = 256 * ((int(2 * 4 * args.dim / 3) + 256 - 1) // 256)
             self.feed_forward = xops.SwiGLU(args.dim, self.hidden_dim, args.dim, bias=False)
         elif args.ffn_type == "swiglu_torch":
-            # this follows llama / lit llama -- go to multiple of 256
-            self.hidden_dim = 256 * ((int(2 * 4 * args.dim / 3) + 256 - 1) // 256)
             self.feed_forward = SwiGLUTorch(args.dim, self.hidden_dim, args.dim, bias=False)
         elif args.ffn_type == "gelu":
             # Follows mosaic mpt7b, but without a bias.
@@ -562,8 +576,6 @@ class Block(nn.Module):
             self._ff_w2 = nn.Linear(self.hidden_dim, args.dim, bias=False)
             self.feed_forward = nn.Sequential(self._ff_w1, nn.GELU(approximate="none"), self._ff_w2)
         elif args.ffn_type == "gemma_geglu":
-            # this follows llama / lit llama -- go to multiple of 256
-            self.hidden_dim = 256 * ((int(2 * 4 * args.dim / 3) + 256 - 1) // 256)
             self.feed_forward = GemmaMLP(args.dim, self.hidden_dim, layer_id)
         elif args.ffn_type == "moe":
             moe_args = MoEArgs(
@@ -761,7 +773,8 @@ def create_params(args):
         return Params(
             dim=cfg["hidden_dim"],
             qk_head_dim=qk_head_dim,
-            v_head_dim=v_head_dim,            
+            v_head_dim=v_head_dim,
+            intermediate_dim_ffn=cfg.get("intermediate_dim_ffn", args.intermediate_dim_ffn),
             n_heads_kv=cfg.get("n_heads_kv", cfg["n_heads"]),
             n_layers=cfg["n_layers"],
             n_heads=cfg["n_heads"],

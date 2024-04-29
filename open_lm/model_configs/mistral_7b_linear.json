@@ -1,6 +1,6 @@
 {
     "hidden_dim": 4096,
-    "intermediate_dim_mlp": 14336,
+    "intermediate_dim_ffn": 14336,
     "n_layers": 32,
     "n_heads": 32,
     "n_heads_kv": 8,
@@ -14,5 +14,8 @@
     "model_norm": "rms_norm",
     "positional_embedding_type": "rotary",
     "ffn_type": "swiglu",
-    "attn_name": "linear_attn"
+    "attn_name": "linear_attn",
+    "use_decay": true,
+    "use_retnet_slopes": false,
+    "decay_start": null
 }

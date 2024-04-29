@@ -13,7 +13,8 @@ from open_lm.utils.llm_foundry_wrapper import SimpleComposerOpenLMCausalLM
 from open_lm.model import create_params
 from open_lm.params import add_model_args
 from open_lm.file_utils import pt_load
-from transformers import GPTNeoXTokenizerFast, LlamaTokenizerFast
+from transformers import GPTNeoXTokenizerFast, AutoTokenizer
+
 
 
 builtin_print = __builtin__.print
@@ -33,6 +34,7 @@ def run_model(open_lm: OpenLMforCausalLM, tokenizer, args):
         "max_new_tokens": args.max_gen_len,
         "use_cache": args.use_cache,
         "num_beams": args.num_beams,
+        "seed": args.seed,
     }
     # If these are set when temperature is 0, they will trigger a warning and be ignored
     if args.temperature > 0:
@@ -62,6 +64,7 @@ def main():
     parser.add_argument("--use-cache", default=False, action="store_true")
     parser.add_argument("--tokenizer", default="EleutherAI/gpt-neox-20b", type=str)
     parser.add_argument("--num-beams", default=1, type=int)
+    parser.add_argument("--seed", default=None, type=int)
 
     add_model_args(parser)
     args = parser.parse_args()
@@ -70,10 +73,12 @@ def main():
 
     if "gpt-neox-20b" in args.tokenizer:
         tokenizer = GPTNeoXTokenizerFast.from_pretrained("EleutherAI/gpt-neox-20b")
-    elif "llama" in args.tokenizer:
-        tokenizer = LlamaTokenizerFast.from_pretrained(args.tokenizer)
     else:
-        raise ValueError(f"Unknown tokenizer {args.tokenizer}")
+        # mistralai/Mistral-7B-v0.1, meta-llama/Llama-2-7b-chat-hf, 
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+
+    torch.seed(args.seed)
+
     if args.checkpoint is not None:
         print("Loading checkpoint from disk...")
         checkpoint = pt_load(args.checkpoint)

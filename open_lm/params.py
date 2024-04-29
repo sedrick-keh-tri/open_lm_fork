@@ -160,6 +160,12 @@ def add_model_args(parser):
         help="Size of v head dimension. This might be overridden by the model config.",
     )
     parser.add_argument(
+        "--intermediate-dim-ffn",
+        type=int,
+        default=None,
+        help="Size of intermediate dimension in the feed forward networks. This might be overridden by the model config.",
+    )
+    parser.add_argument(
         "--decay-start",
         type=int,
         default=None,

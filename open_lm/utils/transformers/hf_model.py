@@ -107,7 +107,7 @@ class OpenLMforCausalLM(OpenLMModel):
         )
         loss = None
         if labels is not None:
-            shift_logits = logits[..., :-1, :].contiguous()
+            shift_logits = logits[..., :-1, :].clone().contiguous()
             shift_labels = labels[..., 1:].contiguous()
             loss_fct = nn.CrossEntropyLoss()
             shift_logits = shift_logits.view(-1, shift_logits.size(-1))

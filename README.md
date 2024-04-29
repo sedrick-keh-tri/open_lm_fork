@@ -1,3 +1,72 @@
+# Linear OpenLM
+
+This repository is a fork of the original OpenLM repository. The original repository can be found [here](https://github.com/mlfoundations/open_lm).
+
+Here we provide the modifications to the OpenLM code to train or uptrain linear attention models. For more details see the ArXiv paper [Linearizing Large Language Models](https://arxiv.org/abs/). 
+
+## How to train a linear model
+
+See the [Run training](#run-training) section below for the original instructions on how to train a model. The only difference is that you should use `linear` models instead of the `open_lm` models. The available linear models are:
+<center>
+
+| Model Name         |
+|--------------------|
+| `linear_tiny`      |
+| `linear_1b`        |
+| `linear_7b`        |
+| `mistral_7b_linear`|
+| `llama2_7b_linear` |
+
+## How to uptrain a linear model
+
+To uptrain a linear model, you can use the same training script as for training a linear model. The only difference is that you should use the `--pretrained` flag to specify the checkpoint you want to start from. For example, to uptrain a linear model from the `checkpoint.pt` checkpoint, you can use the following command:
+
+```bash
+>>> export CUDA_VISIBLE_DEVICES=0,1,2,3
+>>> torchrun --nproc-per-node 4 -m open_lm.main   \
+ --model linear_tiny \
+ --dataset-manifest refined_web_tokenized/manifest.jsonl \
+ --train-num-samples 1_000_000 \
+ --precision "amp_bfloat16" \
+ --fsdp-amp \
+ --fsdp-pure-bf16 \
+ --workers 1 \
+ --global-batch-size 9 \
+ --log-every-n-steps 100 \
+ --grad-clip-norm 1 \
+ --data-key json.gz \
+ --lr 3e-4 \
+ --accum-freq 1 \
+ --warmup 10 \
+ --wd 0.1 \
+ --beta2 0.98 \
+ --epochs 10 \
+ --report-to wandb \
+ --wandb-project-name linear_open_lm \
+ --name linear_tiny_example \
+ --logs logs \
+ --z-loss-coefficient 1e-4 \
+ --load-not-strict \
+ --pretrained checkpoint.pt
+```
+
+## How to evaluate a linear model
+
+See the [Evaluate Model](#evaluate-model) section below for the original instructions on how to evaluate a model. The only difference is that you should use `linear` models instead of the `open_lm` models. Note that for the reference paper, we used the EleutherAI evaluation suite, which is not available in this repository.
+
+## How to generate text from a linear model
+
+An example of how to generate text from a linear model is shown below. The only difference is that you should use `linear` models instead of the `open_lm` models.
+
+```bash
+python scripts/generate.py \
+--model linear_1b \
+--checkpoint /path/to/linear_checkpoint.pt \
+--input-text "Are you conscious, can you talk to me?" \
+--tokenizer EleutherAI/gpt-neox-20b \
+--use-cache
+```
+
 # OpenLM
 
 ![](/plots/logo.png)
