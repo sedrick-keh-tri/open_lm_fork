@@ -14,7 +14,7 @@ from open_lm.model import create_params
 from open_lm.params import add_model_args
 from open_lm.file_utils import pt_load
 from transformers import GPTNeoXTokenizerFast, AutoTokenizer
-
+import numpy as np
 
 
 builtin_print = __builtin__.print
@@ -34,12 +34,17 @@ def run_model(open_lm: OpenLMforCausalLM, tokenizer, args):
         "max_new_tokens": args.max_gen_len,
         "use_cache": args.use_cache,
         "num_beams": args.num_beams,
-        "seed": args.seed,
     }
     # If these are set when temperature is 0, they will trigger a warning and be ignored
     if args.temperature > 0:
         generate_args["temperature"] = args.temperature
         generate_args["top_p"] = args.top_p
+
+    if args.seed is not None:
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(args.seed)
 
     output = composer_model.generate(
         input["input_ids"],
@@ -76,8 +81,6 @@ def main():
     else:
         # mistralai/Mistral-7B-v0.1, meta-llama/Llama-2-7b-chat-hf, 
         tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
-
-    torch.seed(args.seed)
 
     if args.checkpoint is not None:
         print("Loading checkpoint from disk...")
