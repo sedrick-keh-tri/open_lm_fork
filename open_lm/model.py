@@ -442,7 +442,7 @@ class LinearAttn(nn.Module):
         attention_mask: None,
         """
         assert is_causal, "LinearAttn class only supports causal mode"
-        if attention_mask.all():
+        if attention_mask is not None and attention_mask.all():
             attention_mask = None
         increment = x.shape[1] if attention_mask is None else attention_mask.sum(dim=1)
 
@@ -489,6 +489,8 @@ class LinearAttn(nn.Module):
                 dtype=x.dtype,
             )
         queries, keys, vals = self._get_qkv(x, offset)
+        # if x.shape[1] == 1:
+        #     breakpoint()
 
         out = []
         for i in range(x.shape[1]):
