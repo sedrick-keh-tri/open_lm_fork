@@ -18,7 +18,6 @@ import xformers.ops as xops
 from huggingface_hub import PyTorchModelHubMixin
 
 from lightning_attn import lightning_attn_func as lightning_attn_ops
-from lightning_attn import linear_attn as linear_attn_decay_ops
 
 from open_lm.attention import get_attn_func, xformers_attn, torch_attn
 from open_lm.norms import get_norm_class
@@ -489,8 +488,6 @@ class LinearAttn(nn.Module):
                 dtype=x.dtype,
             )
         queries, keys, vals = self._get_qkv(x, offset)
-        # if x.shape[1] == 1:
-        #     breakpoint()
 
         out = []
         for i in range(x.shape[1]):
