@@ -114,10 +114,6 @@ class OpenLMForCausalLM(PreTrainedModel):
             shift_labels = shift_labels.to(shift_logits.device)
             loss = loss_fct(shift_logits, shift_labels)
 
-        if not return_dict:
-            output = (logits,) + outputs[1:]
-            return (loss,) + output if loss is not None else output
-
         return CausalLMOutputWithPast(
             loss=loss,
             logits=logits,
