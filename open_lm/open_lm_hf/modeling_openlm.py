@@ -84,8 +84,6 @@ class OpenLMForCausalLM(PreTrainedModel):
         if output_hidden_states:
             raise ValueError("output_hidden_states is not yet supported in OpenLM")
 
-        return_dict = return_dict if return_dict is not None else False
-
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         # print("outer past_key_values: ", type(past_key_values))
         # if past_key_values is not None:
