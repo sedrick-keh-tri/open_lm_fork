@@ -224,13 +224,24 @@ class CustomAttn(nn.Module):
 
 
 def no_slope_tensor(n_attention_heads: int, device: torch.device, dtype: torch.dtype):
-    # h, 1, 1
+    """
+    This function returns a tensor of zeros, which is equivalent to not using any decay.
+    n_attention_heads: number of attention heads
+    device: device to use
+    dtype: data type to use
+    """
     slopes = torch.zeros(n_attention_heads, 1, 1, device=device, dtype=dtype)
 
     return slopes
 
 
 def get_slopes_power_of_2(n, start):
+    """
+    This function returns a list of slopes for the linear attention function given a power of 3 number of heads.
+    It is taken from the lightning attention code.
+    n: number of attention heads
+    start: (optional) start value for the slope tensor
+    """
     ratio = 2 ** (-(2 ** -(math.log2(n) - 3)))
     if start is None:
         start = ratio
@@ -238,6 +249,12 @@ def get_slopes_power_of_2(n, start):
 
 
 def get_slopes(n, start):
+    """
+    This function returns a list of slopes for the linear attention function. 
+    It is taken from the lightning attention code.
+    n: number of attention heads
+    start: (optional) start value for the slope tensor
+    """
     if math.log2(n).is_integer():
         return get_slopes_power_of_2(
             n, start
@@ -253,7 +270,14 @@ def get_slopes(n, start):
 
 
 def get_slope_tensor(n_attention_heads: int, start: float=None, use_retnet_slopes: bool=False, device: torch.device=None, dtype: torch.dtype=None):
-
+    """
+    This function returns a tensor of slopes for the linear attention function. This determines the decay of the attention function.
+    n_attention_heads: number of attention heads
+    start: (optional) start value for the slope tensor
+    use_retnet_slopes: (optional) use the RetNet slopes instead of the default lightning attention ones
+    device: (optional) device to use
+    dtype: (optional) data type to use
+    """
     if use_retnet_slopes:
         head_count = torch.arange(n_attention_heads, device=device, dtype=dtype)
         gamma = 1 - torch.exp2(-5 - head_count.float())
@@ -266,7 +290,19 @@ def get_slope_tensor(n_attention_heads: int, start: float=None, use_retnet_slope
     return slopes
 
 
-def recurrent_forward(queries, keys, vals, s, use_decay=False, use_retnet_slopes=False, qk_scale=1, start=None) -> Tuple[torch.Tensor, torch.Tensor]:
+def recurrent_forward(queries, keys, vals, s, qk_scale=1, start=None, use_decay=False, use_retnet_slopes=False) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    This function computes the output of the linear attention function in a recurrent manner. 
+    Its result is equivalent to the parallel computation of the linear attention function.
+    queries: queries, shape (batch_size, num_heads, seq_len, dim_qk)
+    keys: keys, shape (batch_size, num_heads, seq_len, dim_qk)
+    vals: values, shape (batch_size, num_heads, seq_len, dim_v)
+    s: current state of the RNN, shape (batch_size, num_heads, dim_qk, dim_v)
+    use_decay: (optional) use the decaying factor on the distance between queries and keys
+    use_retnet_slopes: (optional) use the RetNet slopes instead of the default lightning attention ones
+    qk_scale: scale factor for queries and keys
+    start: (optional) start value for the slope tensor in case decay is used
+    """
     if use_decay:
         slope = get_slope_tensor(queries.shape[1], start, use_retnet_slopes, queries.device, queries.dtype)
         gamma = torch.exp(- slope).reshape(1, queries.shape[1], 1, 1)
@@ -287,7 +323,6 @@ def lightning_attn_func(q, k, v, qk_scale: float, start: float = None, use_decay
         k: keys, shape (batch_size, num_heads, seq_len, dim_qk)
         v: values, shape (batch_size, num_heads, seq_len, dim_v)
         qk_scale: scale factor for queries and keys
-        depth: (optional) depth of the model, used to compute the slope tensor
         start: (optional) start value for the slope tensor in case decay is used
         use_decay: (optional) use the decaying factor on the distance between queries and keys
         use_retnet_slopes: (optional) use the RetNet slopes instead of the default lightning attention ones
@@ -303,6 +338,12 @@ def lightning_attn_func(q, k, v, qk_scale: float, start: float = None, use_decay
 
 
 class LinearAttn(nn.Module):
+    """
+    This class implements the linear attention layer.
+    It can be used as a drop-in replacement for the CustomAttn class.
+    The forward method can be run in parallel or recurrent mode depending on the use_cache parameter,
+    which folows the same logic as the CustomAttn class with qk_cache or without it.
+    """
     def __init__(self, layer_id, args: Params):
         super().__init__()
         self.params = args
@@ -370,7 +411,11 @@ class LinearAttn(nn.Module):
         self.qk_scale = 1.0 / math.sqrt(self.qk_head_dim)
 
     def repeat_kv(self, hidden_states, n_rep):
-        if n_rep==1:
+        """
+        This function repeats the key and value tensors to match the number of queries.
+        This is needed when the number of key-value heads is different from the number of query heads (GQA or MQA).
+        """
+        if n_rep == 1:
             return hidden_states
         hidden_states2 = hidden_states.transpose(1, 2)
         batch, num_key_value_heads, slen, head_dim = hidden_states2.shape
@@ -382,6 +427,10 @@ class LinearAttn(nn.Module):
             self.mask = torch.tril(torch.ones(1, 1, seqlen, seqlen, requires_grad=False), diagonal=0).to(device)
 
     def _get_qkv(self, x: torch.Tensor, offset=0):
+        """
+        This function computes the queries, keys, and values for the linear attention function.
+        It re-uses the projection layer from a usual transformer model and applies the kernels to the queries and keys (one layer + relu).
+        """
         batchsize, seqlen, _ = x.shape
         queries, keys, vals = self.in_proj(x).split([self.n_heads * self.qk_in_head_dim, self.n_heads_kv * self.qk_in_head_dim, self.n_heads_kv * self.v_head_dim], dim=-1)
         vals = vals.view(batchsize, seqlen, self.n_heads_kv, self.v_head_dim)
@@ -411,6 +460,10 @@ class LinearAttn(nn.Module):
         return queries, keys, vals
 
     def _output(self, output: torch.Tensor):
+        """
+        This function computes the output of the linear attention function.
+        It applies the group normalization and the output projection layer.
+        """
         output = output.transpose(1, 2).contiguous()
         batchsize, seqlen = output.shape[:2]
 
@@ -433,7 +486,7 @@ class LinearAttn(nn.Module):
         attention_mask=None
     ):
         """
-        Run the linear attention function either in parallel or recurrent mode.
+        Run the linear attention function either in parallel (use_cache=False) or recurrent mode (use_cache=True).
         x: [B, T, D]
         is_causal: bool must be True
         past_key_value: None or tuple of (state, offset), this is a hack to repurpose the key_value cache for recurrent inference
@@ -470,13 +523,15 @@ class LinearAttn(nn.Module):
     def forward_recurrent(
         self,
         x: torch.Tensor,
-        s: torch.Tensor,
-        offset,
+        s: torch.Tensor = None,
+        offset=0,
     ):
         """
-        x: [B, sequence_length, D]
-        s: [B, head, h_dim, h_dim]
-        offset: int or [B,] sequence offset
+        Use the linear attention function to compute the output in recurrent mode.
+        Loops over the sequence length and computes the output and the state update at each step.
+        x: [B, sequence_length, D] input features
+        s: [B, head, h_dim, h_dim] (optional) input recurrent state
+        offset: int or [B,] (optional) sequence offset for positional embedding, encodes the current position of x in the sequence.
         """
         if s is None:
             s = torch.zeros(
