@@ -7,7 +7,7 @@ Here we provide the modifications to the OpenLM code to train or uptrain linear 
 ## Quickstart
 Our [Mistral-SUPRA](TRI-ML/mistral-supra) model is publicly available on HuggingFace!
 
-Detailed instructions on how to run the model can be found on the Mistral-SUPRA HF page. If you want to simply run the model, you can do the following:
+Detailed instructions on how to run the model can be found on the Mistral-SUPRA HF page. We also recommend you check out our [Mamba-7B](https://huggingface.co/TRI-ML/mamba-7b-rw) model. If you want to simply use the models for inference/generation, you can do the following:
 
 First pip install our fork of OpenLM.
 
