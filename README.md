@@ -2,11 +2,45 @@
 
 This repository is a fork of the original OpenLM repository. The original repository can be found [here](https://github.com/mlfoundations/open_lm).
 
-Here we provide the modifications to the OpenLM code to train or uptrain linear attention models. For more details see the ArXiv paper [Linearizing Large Language Models](https://arxiv.org/abs/). 
+Here we provide the modifications to the OpenLM code to train or uptrain linear attention models. For more details see the arXiv paper [Linearizing Large Language Models](https://arxiv.org/abs/). 
+
+## Quickstart
+Our [Mistral-SUPRA](TRI-ML/mistral-supra) model is publicly available on HuggingFace!
+
+Detailed instructions on how to run the model can be found on the Mistral-SUPRA HF page. If you want to simply run the model, you can do the following:
+
+First pip install our fork of OpenLM.
+
+```bash
+pip install git+https://github.com/tri-ml/linear_open_lm.git
+```
+
+Import the OpenLM classes with
+
+```python
+from open_lm.open_lm_hf import *
+```
+
+The model can then be loaded normally using AutoTokenizer and AutoModelForCausalLM as follows:
+
+```python
+from open_lm.open_lm_hf import *
+from transformers import AutoTokenizer, AutoModelForCausalLM
+tokenizer = AutoTokenizer.from_pretrained("tri-ml/mistral-supra")
+model = AutoModelForCausalLM.from_pretrained("tri-ml/mistral-supra")
+
+inputs = tokenizer(["Machine learning is"], return_tensors="pt")
+gen_kwargs = {"max_new_tokens": 50, "top_p": 0.8, "temperature": 0.8, "do_sample": True, "repetition_penalty": 1.1}
+output = model.generate(inputs['input_ids'], **gen_kwargs)
+output = tokenizer.decode(output[0].tolist(), skip_special_tokens=True)
+print(output)
+```
+
+If you are interested in further training this model or in training another linear model, we recommend you use this repo. Our models were trained with OpenLM, then the weights were copied over to HuggingFace. We have not tested training directly using HuggingFace.
 
 ## How to train a linear model
 
-See the [Run training](#run-training) section below for the original instructions on how to train a model. The only difference is that you should use `linear` models instead of the `open_lm` models. The available linear models are:
+See the [Run training](#run-training) section below for the original OpenLM instructions on how to train a model. The only difference is that you should use `linear` models instead of the `open_lm` models. The available linear models are:
 <center>
 
 | Model Name         |
@@ -19,7 +53,7 @@ See the [Run training](#run-training) section below for the original instruction
 
 ## How to uptrain a linear model
 
-To uptrain a linear model, you can use the same training script as for training a linear model. The only difference is that you should use the `--pretrained` flag to specify the checkpoint you want to start from. For example, to uptrain a linear model from the `checkpoint.pt` checkpoint, you can use the following command:
+To uptrain a linear model, you can use the same training script as for pre-training a linear model from scratch. The only difference is that you should use the `--pretrained` flag to specify the checkpoint you want to start from. For example, to uptrain a linear model from the `checkpoint.pt` checkpoint, you can use the following command:
 
 ```bash
 >>> export CUDA_VISIBLE_DEVICES=0,1,2,3
@@ -52,7 +86,7 @@ To uptrain a linear model, you can use the same training script as for training 
 
 ## How to evaluate a linear model
 
-See the [Evaluate Model](#evaluate-model) section below for the original instructions on how to evaluate a model. The only difference is that you should use `linear` models instead of the `open_lm` models. Note that for the reference paper, we used the EleutherAI evaluation suite, which is not available in this repository.
+See the [Evaluate Model](#evaluate-model) section below for the original instructions on how to evaluate a model. The only difference is that you should use `linear` models instead of the `open_lm` models. Note that for the reference paper, we used the EleutherAI [LM Harness](https://github.com/EleutherAI/lm-evaluation-harness) evaluation suite, which is not available in this repository.
 
 ## How to generate text from a linear model
 
@@ -65,6 +99,18 @@ python scripts/generate.py \
 --input-text "Are you conscious, can you talk to me?" \
 --tokenizer EleutherAI/gpt-neox-20b \
 --use-cache
+```
+
+## Citation
+
+```
+@article{Mercat2024Linearizing,
+  title={Linearizing Large Language Models},
+  author={Jean Mercat and Igor Vasiljevic and Sedrick Keh and Kushal Arora and Achal Dave and Adrien Gaidon and Thomas Kollar},
+  journal={ArXiv},
+  year={2024},
+  volume={},
+}
 ```
 
 # OpenLM
