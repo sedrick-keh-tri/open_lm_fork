@@ -7,7 +7,7 @@ from typing import Tuple
 import torch
 
 
-def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
+def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0, scale: float = 1.0):
     """
     Precompute the frequency tensor for complex exponentials (cis) with given dimensions.
 
@@ -27,7 +27,7 @@ def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
 
 
     """
-    freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
+    freqs = 1.0 / (scale * theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
     t = torch.arange(end, device=freqs.device)  # type: ignore
     freqs = torch.outer(t, freqs).float()  # type: ignore
     freqs_cis = torch.polar(torch.ones_like(freqs), freqs)  # complex64
@@ -125,7 +125,7 @@ class LLaMARotaryEmbedding(torch.nn.Module):
     def reset_parameters(self):
         pass
 
-    def forward(self, q: torch.Tensor, k: torch.Tensor, offset: int = 0) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, q: torch.Tensor, k: torch.Tensor, offset=0) -> Tuple[torch.Tensor, torch.Tensor]:
         assert (
             q.shape[1] + offset <= self.freqs_cis.shape[0]
         ), f"offset {offset} or query sequence length {q.shape[1]}\
@@ -147,6 +147,6 @@ class LLaMARotaryEmbedding(torch.nn.Module):
 
 
 class LLaMARotaryWithCast(LLaMARotaryEmbedding):
-    def forward(self, q, k, v, offset: int = 0):
+    def forward(self, q, k, v, offset=0):
         q, k = super().forward(q, k, offset)
         return q.to(v.dtype), k.to(v.dtype), v

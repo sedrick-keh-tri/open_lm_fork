@@ -29,7 +29,7 @@ class HeadRotaryEmbedding(RotaryEmbedding):
         super().__init__(dim_model, seq_len)
         self._has_warned = False
 
-    def forward(self, q: torch.Tensor, k: torch.Tensor, offset: int = 0) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, q: torch.Tensor, k: torch.Tensor, offset=0) -> Tuple[torch.Tensor, torch.Tensor]:
         self._update_cos_sin_tables(k.shape[2], device=k.device, dtype=k.dtype)
 
         if not self._has_warned and (offset != 0):
@@ -43,6 +43,6 @@ class HeadRotaryEmbedding(RotaryEmbedding):
 
 class HeadRotaryWithCast(HeadRotaryEmbedding):
     # NOTE: this version has the bug, but we trained the 7B model with it so it's default
-    def forward(self, q, k, v, offset: int = 0):
+    def forward(self, q, k, v, offset=0):
         q, k = super().forward(q, k, offset)
         return q.to(v.dtype), k.to(v.dtype), v
