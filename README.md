@@ -2,10 +2,10 @@
 
 This repository is a fork of the original OpenLM repository. The original repository can be found [here](https://github.com/mlfoundations/open_lm).
 
-Here we provide the modifications to the OpenLM code to train or uptrain linear attention models. For more details see the arXiv paper [Linearizing Large Language Models](https://arxiv.org/abs/). 
+Here we provide the modifications to the OpenLM code to train or uptrain linear attention models. For more details see the arXiv paper [Linearizing Large Language Models](https://arxiv.org/abs/2405.06640). 
 
 ## Quickstart
-Our [Mistral-SUPRA](TRI-ML/mistral-supra) model is publicly available on HuggingFace!
+Our [Mistral-SUPRA](https://huggingface.co/TRI-ML/mistral-supra) model is publicly available on HuggingFace!
 
 Detailed instructions on how to run the model can be found on the Mistral-SUPRA HF page. We also recommend you check out our [Mamba-7B](https://huggingface.co/TRI-ML/mamba-7b-rw) model. If you want to simply use the models for inference/generation, you can do the following:
 
