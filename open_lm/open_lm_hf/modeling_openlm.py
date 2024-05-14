@@ -146,7 +146,7 @@ class OpenLMForCausalLM(PreTrainedModel):
             "input_ids": input_ids,
             "past_key_values": past_key_values,
             "use_cache": kwargs.pop("use_cache", True),
-            }
+        }
         return model_inputs
 
     def get_input_embeddings(self) -> torch.nn.Module:

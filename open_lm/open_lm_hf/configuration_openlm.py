@@ -19,5 +19,6 @@ class OpenLMConfig(PretrainedConfig):
         kwargs["architectures"] = ["OpenLMForCausalLM"]
         super().__init__(**kwargs)
 
+
 # Register the config class so that it is available for transformer pipelines, auto-loading etc.
 AutoConfig.register("openlm", OpenLMConfig)
