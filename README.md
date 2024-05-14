@@ -312,7 +312,6 @@ We provide the following pre-trained models:
             <td><u>80.4</u></td>
             <td>70.3</td>
             <td><u>75.9</u></td>
-            <td><u>45.8</u
             <td><u>45.8</u></td>
             <td><u>34.2</u></td>
             <td><u>64.0</u></td>
