@@ -2,6 +2,8 @@
 
 This repository contains the code for [Linearizing Large Language Models](https://arxiv.org/abs/2405.06640). This is a fork of the original [OpenLM repository](https://github.com/mlfoundations/open_lm).
 
+![Linearizing Large Language Models](plots/fig1.png)
+
 ## Quickstart
 Our [Mistral-SUPRA](https://huggingface.co/TRI-ML/mistral-supra) model is publicly available on HuggingFace!
 
