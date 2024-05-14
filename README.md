@@ -99,174 +99,6 @@ python scripts/generate.py \
 --use-cache
 ```
 
-## Citation
-
-```
-@article{Mercat2024Linearizing,
-  title={Linearizing Large Language Models},
-  author={Jean Mercat and Igor Vasiljevic and Sedrick Keh and Kushal Arora and Achal Dave and Adrien Gaidon and Thomas Kollar},
-  journal={ArXiv},
-  year={2024},
-  volume={},
-}
-```
-
-# OpenLM
-
-This part is copied from the original OpenLM repository, only the paragraph used in the linear models are kept.
-Refer to the original repository for more information.
-
-# Quickstart
-Here we'll go over a basic example where we start from a fresh install, download and preprocess some training data, and train a model.
-
-## Setup
-We require python >=3.9, and a current installation of pyTorch, as well as several other packages. The full list of requirements is contained in `requirements.txt` and can be installed in your python enviornment via
-```>>> pip install -r requirements.txt```
-Next, to access `open_lm` everywhere in your virtual environment, install it using pip (from within the top level github repo)
-```>>> pip install --editable . ```
-Some considerations:
-- We like [WandB](https://wandb.ai/) and [tensorboard](https://www.tensorflow.org/tensorboard) for logging. We specify how to use these during training below.
-
-## Process Training Data
-Next you must specify a collection of tokenized data. For the purposes of this example, we will use a recent dump of english Wikipedia, available on HuggingFace. To download this locally, we've included a script located at [datapreprocess/wiki_download.py](datapreprocess/wiki_download.py). All you have to do is specify an output directory for where the raw data should be stored:
-```
-python datapreprocess/wiki_download.py --output-dir path/to/raw_data
-```
-
-Next we process our training data by running it through a BPE tokenizer and chunk it into chunks of appropriate length. By default we use the tokenizer attached with [GPT-NeoX-20B](https://github.com/EleutherAI/gpt-neox). To do this, use the script `datapreprocess/make_2048.py`:
-```
->>> python datapreprocess/make_2048.py \
-    --input-files path_to_raw_data/*.jsonl
-    --output-dir preproc_data
-    --num-workers 32
-    --num-consumers 1
-```
-Where `input-files` passes all of its (possibly many) arguments through the python `glob` module, allowing for wildcards. Optionally, data can be stored in S3 by setting the environment variables: `S3_BASE`,  and passing the flag `--upload-to-s3` to the script. This saves sharded data to the given bucket with prefix of `S3_BASE`. E.g.
-```
->>> export S3_BASE=preproc_data-v1/
->>> python datapreprocess/make2048.py --upload-to-s3 ... # same arguments as before
-```
-
-## Run Training
-Tokenized data can now be passed to the main training script, `open_lm/main.py`. Distributed computatation is handled via `torchrun`, and hyperparameters are specified by a variety of keyword arguments. We highlight several of the most important ones here:
-- `train-data`: location of the sharded tokenized training data. If locally generated and stored, this will point to a directory containing files like `preproc_data/2048-v1/0/XXXXXXX.tar`. Data are processed using the [webdataset](https://github.com/webdataset/webdataset) package where wildcards are supported like `preproc_data/2048-v1/0/{0000000..0000099}.tar` to select the first 100 .tar files.
-- `model`: Which model to use. See the table below to see valid options and parameter sizes for each.
-- `train-num-samples`: how many samples to use from the specified training dataset
-- `name`: name of this particular training run for logging purposes
-- `report-to`: if present, can be `wandb`, `tensorboard`, or `all` to stash logging information on WandB or Tensorboard.
-
-
-Model choices are contained in the following table, where, for instance `11m` indicates an 11 million parameter model and `1b` indicates a 1 billion parameter model.
-<center>
-
-| Model Name    |
-|---------------|
-| `open_lm_11m` |
-| `open_lm_25m` |
-| `open_lm_87m` |
-| `open_lm_160m`|
-| `open_lm_411m`|
-| `open_lm_830m`|
-| `open_lm_1b`  |
-| `open_lm_3b`  |
-| `open_lm_7b`  |
-
-</center>
-
-An example training run can be called as follows:
-```
->>> export CUDA_VISIBLE_DEVICES=0,1,2,3
->>> torchrun --nproc-per-node 4 -m open_lm.main   \
- --model open_lm_3b \
- --train-data /preproc_data/shard-{0000000..0000099}.tar \
- --train-num-samples 1000000000 \
- --workers 8 \
- --dataset-resampled \
- --precision amp_bfloat16 \
- --batch-size 8 \
- --grad-checkpointing \
- --log-every-n-steps 100 \
- --grad-clip-norm 1 \
- --data-key txt \
- --lr 3e-4 \
- --fsdp --fsdp-amp \
- --warmup 2000 \
- --wd 0.1 \
- --beta2 0.95 \
- --epochs 100 \
- --report-to wandb \
- --wandb-project-name open_lm_example \
- --name open_lm_ex_$RANDOM \
- --resume latest \
- --logs path/to/logging/dir/
-```
-Checkpoints and final model weights will be saved to the specified logs directory.
-
-During training, the above command will pick shards to train on via sampling with replacement. Training can also be done by picking shards via sampling without replacement. To do this, the input dataset(s) must first be preprocessed using the following command:
-```
-python -m open_lm.utils.make_wds_manifest --data-dir /preproc_data/
-```
-This will create a file called ```manifest.jsonl``` under ```/preproc_data```. Training can then be done by sampling wihout replacement via the following example commands:
-```
->>> export CUDA_VISIBLE_DEVICES=0,1,2,3
->>> torchrun --nproc-per-node 4 -m open_lm.main   \
- --model open_lm_3b \
- --dataset-manifest /preproc_data/manifest.jsonl \
- --train-num-samples 1000000000 \
- --workers 8 \
- --precision amp_bfloat16 \
- --batch-size 8 \
- --grad-checkpointing \
- --log-every-n-steps 100 \
- --grad-clip-norm 1 \
- --data-key txt \
- --lr 3e-4 \
- --fsdp --fsdp-amp \
- --warmup 2000 \
- --wd 0.1 \
- --beta2 0.95 \
- --epochs 100 \
- --report-to wandb \
- --wandb-project-name open_lm_example \
- --name open_lm_ex_$RANDOM \
- --resume latest \
- --logs path/to/logging/dir/
-```
-
-### Dataset manifest
-
-The manifest created with `open_lm/utils/make_wds_manifest.py` is a `jsonl` file describing the dataset. Each line in this file corresponds to a shard of the dataset and is a `json` object containing two fields:
-
-- `"shard"`: the name of a shard in the dataset.
-- `"num_sequences"`: the number of sequences contained in the shards. Each sequence contains a set length of tokens.
-
-This manifest file provides auxiliary information about the dataset, and is assumed to be found within the same directory as the shards.
-
-## Evaluate Model
-Once trained, we can evaluate the model. This requires [LLM Foundry](https://github.com/mosaicml/llm-foundry), which can be installed via `pip install llm-foundry`. Next some configurations are required to pass to the evaluator: a skeleton of these parameters is located at [eval/in_memory_hf_eval.yaml](eval/in_memory_hf_eval.yaml). Then just run the following script, making sure to point it at the checkpoint of your trained model (and it's correspending config .json file):
-```
-cd eval
-
-python eval_openlm_ckpt.py \
---eval-yaml in_memory_hf_eval.yaml \
---model open_lm_1b  \
---checkpoint /path/to/openlm_checkpoint.pt
---positional_embedding_type head_rotary
-
-```
-Note that `--positional-embedding-type head_rotary` is only necessary if using the pretrained `open_lm_1b` model hosted below. See discussion in the next section about this.
-
-## Generate Text
-One can also use a trained model to generate text. This is accessible via the script located at [scripts/generate.py](scripts/generate.py). The parameters are similar to those used in evaluation:
-```
-cd scripts
-
-python generate.py \
---model open_lm_1b \
---checkpoint /path/to/openlm_checkpoint.pt \
---positional-embedding-type head_rotary \
---input-text "Please give me a recipe for chocolate chip cookies"
-```
 
 # Pre-trained Models
 
@@ -447,7 +279,7 @@ We provide the following pre-trained models:
             <td><b>64.7</b></td>
         </tr>
         <tr style="background-color: #f0f0f0;">
-            <td>Llama2-\methodname</td>
+            <td>Llama2-SUPRA</td>
             <td>7B</td>
             <td>+20</td>
             <td>71.8</td>
@@ -459,7 +291,7 @@ We provide the following pre-trained models:
             <td>58.6</td>
         </tr>
         <tr style="background-color: #f0f0f0;">
-            <td>Mistral-\methodname</td>
+            <td>Mistral-SUPRA</td>
             <td>7B</td>
             <td>+20</td>
             <td>74.8</td>
@@ -471,7 +303,7 @@ We provide the following pre-trained models:
             <td>61.2</td>
         </tr>
         <tr style="background-color: #f0f0f0;">
-            <td>Mistral-\methodname</td>
+            <td>Mistral-SUPRA</td>
             <td>7B</td>
             <td>+100</td>
             <td><u>77.1</u></td>
@@ -486,9 +318,177 @@ We provide the following pre-trained models:
     </tbody>
 </table>
 
-<p>Linear models (RNNs and SSMs) highlighted in gray. 5-shot results are used for MMLU. Norm results are used for PIQA, HellaSwag, ARC-C. RetNet results taken from RetNet paper.</p>
+<p>Last 7 rows are linear models. 5-shot results are used for MMLU. Norm results are used for PIQA, HellaSwag, ARC-C. RetNet results taken from RetNet paper.</p>
 
 
+## Citation
+
+```bibtex
+@article{Mercat2024Linearizing,
+  title={Linearizing Large Language Models},
+  author={Jean Mercat and Igor Vasiljevic and Sedrick Keh and Kushal Arora and Achal Dave and Adrien Gaidon and Thomas Kollar},
+  journal={ArXiv},
+  year={2024},
+  volume={},
+}
+```
+
+# OpenLM
+
+This part is copied from the original OpenLM repository, only the paragraph used in the linear models are kept.
+Refer to the original repository for more information.
+
+# Quickstart
+Here we'll go over a basic example where we start from a fresh install, download and preprocess some training data, and train a model.
+
+## Setup
+We require python >=3.9, and a current installation of pyTorch, as well as several other packages. The full list of requirements is contained in `requirements.txt` and can be installed in your python enviornment via
+```>>> pip install -r requirements.txt```
+Next, to access `open_lm` everywhere in your virtual environment, install it using pip (from within the top level github repo)
+```>>> pip install --editable . ```
+Some considerations:
+- We like [WandB](https://wandb.ai/) and [tensorboard](https://www.tensorflow.org/tensorboard) for logging. We specify how to use these during training below.
+
+## Process Training Data
+Next you must specify a collection of tokenized data. For the purposes of this example, we will use a recent dump of english Wikipedia, available on HuggingFace. To download this locally, we've included a script located at [datapreprocess/wiki_download.py](datapreprocess/wiki_download.py). All you have to do is specify an output directory for where the raw data should be stored:
+```
+python datapreprocess/wiki_download.py --output-dir path/to/raw_data
+```
+
+Next we process our training data by running it through a BPE tokenizer and chunk it into chunks of appropriate length. By default we use the tokenizer attached with [GPT-NeoX-20B](https://github.com/EleutherAI/gpt-neox). To do this, use the script `datapreprocess/make_2048.py`:
+```
+>>> python datapreprocess/make_2048.py \
+    --input-files path_to_raw_data/*.jsonl
+    --output-dir preproc_data
+    --num-workers 32
+    --num-consumers 1
+```
+Where `input-files` passes all of its (possibly many) arguments through the python `glob` module, allowing for wildcards. Optionally, data can be stored in S3 by setting the environment variables: `S3_BASE`,  and passing the flag `--upload-to-s3` to the script. This saves sharded data to the given bucket with prefix of `S3_BASE`. E.g.
+```
+>>> export S3_BASE=preproc_data-v1/
+>>> python datapreprocess/make2048.py --upload-to-s3 ... # same arguments as before
+```
+
+## Run Training
+Tokenized data can now be passed to the main training script, `open_lm/main.py`. Distributed computatation is handled via `torchrun`, and hyperparameters are specified by a variety of keyword arguments. We highlight several of the most important ones here:
+- `train-data`: location of the sharded tokenized training data. If locally generated and stored, this will point to a directory containing files like `preproc_data/2048-v1/0/XXXXXXX.tar`. Data are processed using the [webdataset](https://github.com/webdataset/webdataset) package where wildcards are supported like `preproc_data/2048-v1/0/{0000000..0000099}.tar` to select the first 100 .tar files.
+- `model`: Which model to use. See the table below to see valid options and parameter sizes for each.
+- `train-num-samples`: how many samples to use from the specified training dataset
+- `name`: name of this particular training run for logging purposes
+- `report-to`: if present, can be `wandb`, `tensorboard`, or `all` to stash logging information on WandB or Tensorboard.
+
+
+Model choices are contained in the following table, where, for instance `11m` indicates an 11 million parameter model and `1b` indicates a 1 billion parameter model.
+<center>
+
+| Model Name    |
+|---------------|
+| `open_lm_11m` |
+| `open_lm_25m` |
+| `open_lm_87m` |
+| `open_lm_160m`|
+| `open_lm_411m`|
+| `open_lm_830m`|
+| `open_lm_1b`  |
+| `open_lm_3b`  |
+| `open_lm_7b`  |
+
+</center>
+
+An example training run can be called as follows:
+```
+>>> export CUDA_VISIBLE_DEVICES=0,1,2,3
+>>> torchrun --nproc-per-node 4 -m open_lm.main   \
+ --model open_lm_3b \
+ --train-data /preproc_data/shard-{0000000..0000099}.tar \
+ --train-num-samples 1000000000 \
+ --workers 8 \
+ --dataset-resampled \
+ --precision amp_bfloat16 \
+ --batch-size 8 \
+ --grad-checkpointing \
+ --log-every-n-steps 100 \
+ --grad-clip-norm 1 \
+ --data-key txt \
+ --lr 3e-4 \
+ --fsdp --fsdp-amp \
+ --warmup 2000 \
+ --wd 0.1 \
+ --beta2 0.95 \
+ --epochs 100 \
+ --report-to wandb \
+ --wandb-project-name open_lm_example \
+ --name open_lm_ex_$RANDOM \
+ --resume latest \
+ --logs path/to/logging/dir/
+```
+Checkpoints and final model weights will be saved to the specified logs directory.
+
+During training, the above command will pick shards to train on via sampling with replacement. Training can also be done by picking shards via sampling without replacement. To do this, the input dataset(s) must first be preprocessed using the following command:
+```
+python -m open_lm.utils.make_wds_manifest --data-dir /preproc_data/
+```
+This will create a file called ```manifest.jsonl``` under ```/preproc_data```. Training can then be done by sampling wihout replacement via the following example commands:
+```
+>>> export CUDA_VISIBLE_DEVICES=0,1,2,3
+>>> torchrun --nproc-per-node 4 -m open_lm.main   \
+ --model open_lm_3b \
+ --dataset-manifest /preproc_data/manifest.jsonl \
+ --train-num-samples 1000000000 \
+ --workers 8 \
+ --precision amp_bfloat16 \
+ --batch-size 8 \
+ --grad-checkpointing \
+ --log-every-n-steps 100 \
+ --grad-clip-norm 1 \
+ --data-key txt \
+ --lr 3e-4 \
+ --fsdp --fsdp-amp \
+ --warmup 2000 \
+ --wd 0.1 \
+ --beta2 0.95 \
+ --epochs 100 \
+ --report-to wandb \
+ --wandb-project-name open_lm_example \
+ --name open_lm_ex_$RANDOM \
+ --resume latest \
+ --logs path/to/logging/dir/
+```
+
+### Dataset manifest
+
+The manifest created with `open_lm/utils/make_wds_manifest.py` is a `jsonl` file describing the dataset. Each line in this file corresponds to a shard of the dataset and is a `json` object containing two fields:
+
+- `"shard"`: the name of a shard in the dataset.
+- `"num_sequences"`: the number of sequences contained in the shards. Each sequence contains a set length of tokens.
+
+This manifest file provides auxiliary information about the dataset, and is assumed to be found within the same directory as the shards.
+
+## Evaluate Model
+Once trained, we can evaluate the model. This requires [LLM Foundry](https://github.com/mosaicml/llm-foundry), which can be installed via `pip install llm-foundry`. Next some configurations are required to pass to the evaluator: a skeleton of these parameters is located at [eval/in_memory_hf_eval.yaml](eval/in_memory_hf_eval.yaml). Then just run the following script, making sure to point it at the checkpoint of your trained model (and it's correspending config .json file):
+```
+cd eval
+
+python eval_openlm_ckpt.py \
+--eval-yaml in_memory_hf_eval.yaml \
+--model open_lm_1b  \
+--checkpoint /path/to/openlm_checkpoint.pt
+--positional_embedding_type head_rotary
+
+```
+Note that `--positional-embedding-type head_rotary` is only necessary if using the pretrained `open_lm_1b` model hosted below. See discussion in the next section about this.
+
+## Generate Text
+One can also use a trained model to generate text. This is accessible via the script located at [scripts/generate.py](scripts/generate.py). The parameters are similar to those used in evaluation:
+```
+cd scripts
+
+python generate.py \
+--model open_lm_1b \
+--checkpoint /path/to/openlm_checkpoint.pt \
+--positional-embedding-type head_rotary \
+--input-text "Please give me a recipe for chocolate chip cookies"
+```
 
 Citations
 --------
