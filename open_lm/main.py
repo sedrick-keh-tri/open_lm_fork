@@ -126,17 +126,17 @@ def load_model(args, model, different_seed=False):
         if "_orig_mod" in next(iter(sd.items()))[0]:
             sd = {k.replace("_orig_mod.", ""): v for k, v in sd.items()}
         if args.fsdp:
-            model.load_state_dict(sd)
+            model.load_state_dict(sd, strict=not args.load_not_strict)
         elif args.distributed:
-            model.module.load_state_dict(sd)
+            model.module.load_state_dict(sd, strict=not args.load_not_strict)
         else:
-            model.load_state_dict(sd)
+            model.load_state_dict(sd, strict=not args.load_not_strict)
         logging.info(f"=> resuming checkpoint '{args.resume}' (epoch {start_epoch})")
     else:
         # loading a bare (model only) checkpoint for fine-tune or evaluation
         start_epoch, global_step = 0, 0
         pretrained_seed = None
-        model.load_state_dict(checkpoint)
+        model.load_state_dict(checkpoint, strict=not args.load_not_strict)
         logging.info(f"=> loaded checkpoint '{args.resume}' (epoch {start_epoch})")
     return start_epoch, global_step, pretrained_seed
 
@@ -595,7 +595,7 @@ def main(args):
             state_dict_i = get_state_dict(args.average[i])
             for k in state_dict:
                 state_dict[k] = state_dict[k] + state_dict_i[k] * args.average_coefficients[i]
-        model.load_state_dict(state_dict)
+        model.load_state_dict(state_dict, strict=not args.load_not_strict)
 
     # Put the shard shuffle seed back into args (this is done for compatibility with older, non shuffling versions)
     args.shard_shuffle_seed = shard_shuffle_seed
@@ -758,11 +758,7 @@ def main(args):
 
         if args.dataset_manifest is not None:
             assert not args.dataset_resampled, "dataset_manifest and dataset_resampled are mutually exclusive"
-            (
-                train_data_string_per_source,
-                num_samples_per_source,
-                next_shard_per_source,
-            ) = get_string_for_epoch(
+            (train_data_string_per_source, num_samples_per_source, next_shard_per_source,) = get_string_for_epoch(
                 args.train_num_samples,
                 next_shard_per_source,
                 args.dataset_manifest,
