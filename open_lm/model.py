@@ -98,6 +98,7 @@ class Params:
     attn_func: Callable = xformers_attn if torch.cuda.is_available() else torch_attn
     attn_name: str = "xformers_attn"
     apply_qk_norm: bool = False
+    linear_freq: float = 0.0
     moe_loss_weight: float = 0.1
     moe_capacity_factor: float = 1.25
     moe_expert_model_parallelism: bool = False
@@ -789,6 +790,12 @@ class Transformer(nn.Module, PyTorchModelHubMixin):
                 params.ffn_type = "moe"
             else:
                 params.ffn_type = ffn_type_
+            if params.linear_freq > 1 and layer_id % int(params.linear_freq) == 0:
+                params.attn_name = "linear_attn"
+            elif params.linear_freq > 0 and layer_id % int(1 / params.linear_freq) == int(1 / (2 * params.linear_freq)):
+                params.attn_name = "xformers_attn"
+            elif params.linear_freq > 0:
+                params.attn_name = "linear_attn"
             self.layers.append(Block(layer_id, params))
 
         # get class for normalization layers
@@ -913,6 +920,7 @@ def create_params(args):
             rotary_base_frequency=cfg.get("rotary_base_frequency", args.rotary_base_frequency),
             rotary_scale=cfg.get("rotary_scale", args.rotary_scale),
             ffn_type=cfg.get("ffn_type", args.ffn_type),
+            linear_freq=cfg.get("linear_freq", args.linear_freq),
             moe_num_experts=cfg.get("moe_num_experts", args.moe_num_experts),
             moe_loss_weight=cfg.get("moe_loss_weight", args.moe_loss_weight),
             moe_expert_model_parallelism=cfg.get("moe_expert_model_parallelism", args.moe_expert_model_parallelism),
