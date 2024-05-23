@@ -112,6 +112,7 @@ class Params:
     rotary_scale: float = 1.0
     use_retnet_slopes: bool = False
     use_decay: bool = False
+    gate_type: str = "none"
 
 
 def get_pos_embed(args: Params):
@@ -414,6 +415,11 @@ class LinearAttn(nn.Module):
             start=args.decay_start,
         )
 
+        self.gate_type = args.gate_type
+        if args.gate_type is not "none":
+            self.out_gate = nn.Linear(args.n_heads_kv * self.head_dim, args.dim, bias=True)
+        self.gate_act = nn.SiLU()
+
         self.mask = None
 
         # initialize weights by trunc_normal(1/sqrt(fan_in))
@@ -512,7 +518,7 @@ class LinearAttn(nn.Module):
         vals = vals.transpose(1, 2).contiguous()
         return queries, keys, vals
 
-    def _output(self, output: torch.Tensor):
+    def _output(self, output: torch.Tensor, gate_input: torch.Tensor = None):
         """
         This function computes the output of the linear attention function.
         It applies the group normalization and the output projection layer.
@@ -520,9 +526,18 @@ class LinearAttn(nn.Module):
         output = output.transpose(1, 2).contiguous()
         batchsize, seqlen = output.shape[:2]
 
+        if self.gate_type == "before":
+            gate = self.gate_act(self.out_gate(gate_input))
+            output = output.reshape(batchsize, seqlen, self.v_head_dim * self.n_heads)
+            output = output * gate
+
         output = self._totrain_gn(output.reshape(batchsize * seqlen, self.v_head_dim * self.n_heads))
 
         output = output.view(batchsize, seqlen, self.v_head_dim * self.n_heads)
+
+        if self.gate_type == "after":
+            gate = self.gate_act(self.out_gate(gate_input))
+            output = output * gate
 
         output = self.out_proj(output)
 
@@ -564,7 +579,7 @@ class LinearAttn(nn.Module):
         assert attention_mask is None, "Attention mask not supported for linear attention"
         queries, keys, vals = self._get_qkv(x)
         output = self.linear_attn_fn(queries, keys, vals, self.qk_scale)
-        return self._output(output)
+        return self._output(output, x)
 
     def forward_recurrent(
         self,
@@ -598,7 +613,7 @@ class LinearAttn(nn.Module):
             out.append(output)
 
         output = torch.cat(out, dim=2)
-        return self._output(output), s
+        return self._output(output, x), s
 
 
 ##########################################################
@@ -906,6 +921,7 @@ def create_params(args):
             moe_freq=cfg.get("moe_freq", args.moe_freq),
             moe_top_k=cfg.get("moe_top_k", args.moe_top_k),
             use_decay=cfg.get("use_decay", args.use_decay),
+            gate_type=cfg.get("gate_type", args.gate_type),
             use_retnet_slopes=cfg.get("use_retnet_slopes", args.use_retnet_slopes),
             decay_start=cfg.get("decay_start", args.decay_start),
         )
